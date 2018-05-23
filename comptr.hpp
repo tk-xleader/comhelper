@@ -7,6 +7,7 @@
 #ifndef COMPTR_H_INCLUDED
 #define COMPTR_H_INCLUDED
 #include<utility>
+#include<type_traits>
 #include<cassert>
 #include<objbase.h>
 
@@ -15,17 +16,23 @@ namespace comhelper{
 	class com_ptr{
 		T* ptr = nullptr;
 		class modifier;
+		static struct enabler_t{} *enabler;
 	public:
 		using element_type = T;
 		using pointer = T*;
 		
 		com_ptr(std::nullptr_t = nullptr){}
-		com_ptr(const com_ptr<T>&src)noexcept:ptr(src.ptr){
+		com_ptr(const com_ptr& src)noexcept:ptr(src.ptr){
 			if(src) src.AddRef();
 		}
-		com_ptr(com_ptr<T>&&src)noexcept:ptr(src.waive()){}
+		com_ptr(com_ptr&&src)noexcept:ptr(src.waive()){}
 		explicit com_ptr(T *ptr_)noexcept:ptr(ptr_){}
-		template<typename U>
+		
+		template<typename U, typename std::enable_if<std::is_convertible<U*, T*>::value, enabler_t>::type*& = enabler>
+		com_ptr(const com_ptr<U>& src)noexcept: com_ptr(src.ptr){
+			if(src) src.AddRef();
+		}
+		template<typename U, typename std::enable_if<!std::is_convertible<U*, T*>::value, enabler_t>::type*& = enabler>
 		explicit com_ptr(const com_ptr<U>& src)noexcept{
 			if(src) src.QueryInterface(&ptr);
 		}
