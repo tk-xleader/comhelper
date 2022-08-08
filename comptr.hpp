@@ -31,7 +31,8 @@ namespace comhelper{
 		using element_type = T;
 		using pointer = T*;
 		
-		com_ptr(std::nullptr_t = nullptr){}
+		com_ptr() = default;
+		com_ptr(std::nullptr_t):noexcept{}
 		
 		explicit com_ptr(T *ptr_)noexcept:ptr(ptr_){}
 		explicit com_ptr(T *ptr_, addref_t)noexcept:ptr(ptr_){
@@ -39,7 +40,7 @@ namespace comhelper{
 		}
 		
 		template<typename U, typename std::enable_if<std::is_convertible<U*, T*>::value, enabler_t>::type*& = enabler>
-		com_ptr(const com_ptr<U>& src)noexcept: com_ptr(static_cast<T*>(src.ptr.get())){}
+		com_ptr(const com_ptr<U>& src)noexcept: com_ptr(static_cast<T*>(src.get()), addref_t()){}
 		
 		template<typename U, typename std::enable_if<!std::is_convertible<U*, T*>::value, enabler_t>::type*& = enabler>
 		explicit com_ptr(const com_ptr<U>& src)noexcept{
