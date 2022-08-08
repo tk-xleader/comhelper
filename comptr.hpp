@@ -8,13 +8,23 @@
 #define COMPTR_H_INCLUDED
 #include<utility>
 #include<type_traits>
+#include<memory>
 #include<cassert>
 #include<objbase.h>
 
 namespace comhelper{
+	struct addref_t{};
+	constexpr addref_t addref;
+	
 	template<typename T>
 	class com_ptr{
-		T* ptr = nullptr;
+		struct com_releaser{
+			inline void operator()(T* ptr)const noexcept{
+				ptr->Release();
+			}
+		};
+		
+		std::unique_ptr<T, com_releaser> ptr;
 		class modifier;
 		static struct enabler_t{} *enabler;
 	public:
@@ -22,52 +32,55 @@ namespace comhelper{
 		using pointer = T*;
 		
 		com_ptr(std::nullptr_t = nullptr){}
-		com_ptr(const com_ptr& src)noexcept:ptr(src.ptr){
-			if(src) src.AddRef();
-		}
-		com_ptr(com_ptr&&src)noexcept:ptr(src.waive()){}
+		
 		explicit com_ptr(T *ptr_)noexcept:ptr(ptr_){}
+		explicit com_ptr(T *ptr_, addref_t)noexcept:ptr(ptr_){
+			if(ptr_) ptr_->AddRef();
+		}
 		
 		template<typename U, typename std::enable_if<std::is_convertible<U*, T*>::value, enabler_t>::type*& = enabler>
-		com_ptr(const com_ptr<U>& src)noexcept: com_ptr(src.ptr){
-			if(src) src.AddRef();
-		}
+		com_ptr(const com_ptr<U>& src)noexcept: com_ptr(static_cast<T*>(src.ptr.get())){}
+		
 		template<typename U, typename std::enable_if<!std::is_convertible<U*, T*>::value, enabler_t>::type*& = enabler>
 		explicit com_ptr(const com_ptr<U>& src)noexcept{
 			if(src) src.QueryInterface(&ptr);
 		}
-		~com_ptr(){
-			if(ptr) ptr->Release();
-		}
+		
+		com_ptr(com_ptr&&src) = default;
+		com_ptr(const com_ptr& src)noexcept:com_ptr(src.ptr.get(), addref_t()){}
+		
+		~com_ptr() = default;
 
 		void swap(com_ptr<T>& other)noexcept{
 			std::swap(ptr,other.ptr);
 		}
 		T* get()const noexcept{
-			return ptr;
+			return ptr.get();
 		}
-
-		T* waive()noexcept{
-			return std::exchange(ptr,nullptr);
+		
+		T* release()noexcept{
+			return ptr.release();
+		}
+		T* waive()noexcept{ // deprecated.
+			return this->release(); //same as release member function.
 		}
 		void reset(T* ptr_ = nullptr)noexcept{
-			com_ptr(ptr_).swap(*this);
+			ptr.reset(ptr_);
 		}
 
-		com_ptr& operator=(com_ptr&& src)noexcept{
-			reset(src.waive());
-			return *this;
-		}
+		com_ptr& operator=(com_ptr&& src) = default;
 		com_ptr& operator=(com_ptr const& src)noexcept{
-			if(this != &src) com_ptr(src).swap(*this);
-			return *this;
+			return this->operator=(com_ptr(src)); // copy and move.
 		}
+		
 		explicit operator bool()const noexcept{return static_cast<bool>(ptr);}
-		operator T*()const noexcept{return ptr;}
-		T* operator->()const noexcept{return ptr;}
+		operator T*()const noexcept{return ptr.get();}
+		
+		T* operator->()const noexcept{return ptr.get();}
 		T& operator*()const noexcept{return *ptr;}
-		bool operator==(com_ptr const& right)const noexcept{return ptr==right.ptr;}
-		bool operator!=(com_ptr const& right)const noexcept{return ptr!=right.ptr;}
+		
+		friend inline bool operator==(com_ptr const& left, com_ptr const& right)noexcept{return left.ptr==right.ptr;}
+		friend inline bool operator!=(com_ptr const& left, com_ptr const& right)noexcept{return !(left==right);}
 
 		template<typename U>
 		HRESULT QueryInterface(com_ptr<U>& ptr_)const noexcept{
