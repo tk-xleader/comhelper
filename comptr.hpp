@@ -10,50 +10,63 @@
 #include<type_traits>
 #include<memory>
 #include<cassert>
-#include<objbase.h>
 
 namespace comhelper{
 	struct addref_t{};
-	constexpr addref_t addref;
+	inline constexpr addref_t addref;
 	
-	template<typename T>
-	class com_ptr{
-		struct com_releaser{
-			inline void operator()(T* ptr)const noexcept{
-				ptr->Release();
-			}
+	template<typename I>
+	struct interface_traits{
+		static inline constexpr auto addref(I* ptr)noexcept{
+			return ptr->AddRef();
+		}
+		static inline constexpr auto release(I* ptr)noexcept{
+			return ptr->Release();
+		}
+	};
+	
+	namespace _details{
+		template<typename Tr, typename Ip, typename = void>
+		struct pointer_type{
+			using type = Ip;
+		};
+		template<typename Tr, typename Ip>
+		struct pointer_type<Tr, Ip, std::void_t<typename Tr::pointer>>{
+			using type = typename Tr::pointer;
 		};
 		
-		std::unique_ptr<T, com_releaser> ptr;
-		class modifier;
-		static struct enabler_t{} *enabler;
+		template<typename Tr, typename I>
+		using pointer_type_t = typename pointer_type<Tr, std::add_pointer_t<I>>::type;
+	}
+	
+	template<typename T, typename Traits = interface_traits<T>>
+	class com_ptr{
 	public:
 		using element_type = T;
-		using pointer = T*;
+		using pointer = _details::pointer_type_t<Traits, T>;
+		using traits_type = Traits;
 		
 		com_ptr() = default;
-		com_ptr(std::nullptr_t):noexcept{}
+		constexpr com_ptr(std::nullptr_t):noexcept{}
 		
-		explicit com_ptr(T *ptr_)noexcept:ptr(ptr_){}
-		explicit com_ptr(T *ptr_, addref_t)noexcept:ptr(ptr_){
-			if(ptr_) ptr_->AddRef();
+		explicit com_ptr(pointer ptr_)noexcept:ptr(ptr_){}
+		explicit com_ptr(pointer ptr_, addref_t)noexcept:ptr(ptr_){
+			if(ptr_) traits_type::addref(ptr_);
 		}
 		
-		template<typename U, typename std::enable_if<std::is_convertible<U*, T*>::value, enabler_t>::type*& = enabler>
-		com_ptr(const com_ptr<U>& src)noexcept: com_ptr(static_cast<T*>(src.get()), addref_t()){}
+		template<typename U, std::enable_if_t<std::is_convertible<U*, T*>::value, std::nullptr_t> = nullptr>
+		com_ptr(const com_ptr<U>& src)noexcept: com_ptr(static_cast<T*>(src.get()), addref_t{}){}
 		
-		template<typename U, typename std::enable_if<!std::is_convertible<U*, T*>::value, enabler_t>::type*& = enabler>
-		explicit com_ptr(const com_ptr<U>& src)noexcept{
-			if(src) src.QueryInterface(&ptr);
-		}
+		template<typename U, std::enable_if_t<!std::is_convertible<U*, T*>::value && std::is_constructible<T*, U*>::value, std::nullptr_t> = nullptr>
+		explicit com_ptr(const com_ptr<U>& src)noexcept: com_ptr(static_cast<T*>(src.get()), addref_t{}){}
 		
 		com_ptr(com_ptr&&src) = default;
-		com_ptr(const com_ptr& src)noexcept:com_ptr(src.ptr.get(), addref_t()){}
+		com_ptr(const com_ptr& src)noexcept:com_ptr(src.get(), addref_t()){}
 		
 		~com_ptr() = default;
 
 		void swap(com_ptr<T>& other)noexcept{
-			std::swap(ptr,other.ptr);
+			ptr.swap(other.ptr);
 		}
 		T* get()const noexcept{
 			return ptr.get();
@@ -61,9 +74,6 @@ namespace comhelper{
 		
 		T* release()noexcept{
 			return ptr.release();
-		}
-		T* waive()noexcept{ // deprecated.
-			return this->release(); //same as release member function.
 		}
 		void reset(T* ptr_ = nullptr)noexcept{
 			ptr.reset(ptr_);
@@ -75,61 +85,20 @@ namespace comhelper{
 		}
 		
 		explicit operator bool()const noexcept{return static_cast<bool>(ptr);}
-		operator T*()const noexcept{return ptr.get();}
 		
 		T* operator->()const noexcept{return ptr.get();}
 		T& operator*()const noexcept{return *ptr;}
 		
 		friend inline bool operator==(com_ptr const& left, com_ptr const& right)noexcept{return left.ptr==right.ptr;}
 		friend inline bool operator!=(com_ptr const& left, com_ptr const& right)noexcept{return !(left==right);}
-
-		template<typename U>
-		HRESULT QueryInterface(com_ptr<U>& ptr_)const noexcept{
-			return QueryInterface(getpp(ptr_));
-		}
-		template<typename U>
-		HRESULT QueryInterface(U** pptr)const noexcept{
-			return QueryInterface(IID_PPV_ARGS(pptr));
-		}
-		HRESULT QueryInterface(REFIID riid,void** ppvObject)const noexcept{
-			assert(ptr != nullptr);
-			return ptr->QueryInterface(riid,ppvObject);
-		}
-		ULONG AddRef()const noexcept{
-			assert(ptr != nullptr);
-			return ptr->AddRef();
-		}
-		ULONG Release()noexcept{
-			return ptr ? std::exchange(ptr,nullptr)->Release() : 0;
-		}
-
-		friend inline T** getpp(modifier&& target)noexcept{
-			return target.getpp();
-		}
-		operator modifier()noexcept{
-			return modifier(this);
-		}
 	private:
-		class modifier{
-			T* ptr = nullptr;
-			com_ptr<T>* target = nullptr;
-		public:
-			explicit modifier(com_ptr<T>* target_)noexcept:ptr(target->get()),target(target_){}
-			modifier(modifier&& other)noexcept:ptr(other.ptr),target(other.target){
-				other.target = nullptr;
+		struct com_releaser{
+			using pointer = com_ptr<T, Traits>::pointer;
+			inline constexpr void operator()(pointer ptr)const noexcept{
+				traits_type::release(ptr);
 			}
-			~modifier(){
-				if(target&&(target->get() != ptr)){ *target = com_ptr(ptr); }
-			}
-
-			T** getpp()noexcept{return &ptr;}
-		private:
-			modifier() = delete;
-			modifier(modifier const&) = delete;
-			void operator=(modifier const&) = delete;
-			void operator=(modifier&&) = delete;
 		};
-		
+		std::unique_ptr<T, com_releaser> ptr;
 	};
 
 	template<typename T>
@@ -138,8 +107,25 @@ namespace comhelper{
 	}
 	
 	template<typename T>
+	inline com_ptr<T> make_comptr(T* ptr, addref_t) noexcept{
+		return com_ptr<T>(ptr, addref_t{});
+	}
+	
+	template<typename T>
 	inline void swap(com_ptr<T>& val1, com_ptr<T>& val2)noexcept{
 		val1.swap(val2);
+	}
+	
+	template<typename To, typename From>
+	inline com_ptr<To> interface_cast(From* from)noexcept{
+		To* dest = nullptr;
+		if(!from || static_cast<long>(from->QueryInterface(__uuidof(To), (void**)&dest)) < 0L) return nullptr;
+		return make_comptr(dest);
+	}
+	
+	template<typename To, typename From>
+	inline com_ptr<To> interface_cast(com_ptr<From> const& from) noexcept{
+		return interface_cast<To>(from.get());
 	}
 }
 #endif//COMPTR_H_INCLUDED
