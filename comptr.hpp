@@ -68,14 +68,14 @@ namespace comhelper{
 		void swap(com_ptr<T>& other)noexcept{
 			ptr.swap(other.ptr);
 		}
-		T* get()const noexcept{
+		pointer get()const noexcept{
 			return ptr.get();
 		}
 		
-		T* release()noexcept{
+		pointer release()noexcept{
 			return ptr.release();
 		}
-		void reset(T* ptr_ = nullptr)noexcept{
+		void reset(pointer ptr_ = nullptr)noexcept{
 			ptr.reset(ptr_);
 		}
 
@@ -86,8 +86,8 @@ namespace comhelper{
 		
 		explicit operator bool()const noexcept{return static_cast<bool>(ptr);}
 		
-		T* operator->()const noexcept{return ptr.get();}
-		T& operator*()const noexcept{return *ptr;}
+		auto operator->()const noexcept{return ptr.get();}
+		auto operator*()const noexcept{return *ptr;}
 		
 		friend inline bool operator==(com_ptr const& left, com_ptr const& right)noexcept{return left.ptr==right.ptr;}
 		friend inline bool operator!=(com_ptr const& left, com_ptr const& right)noexcept{return !(left==right);}
