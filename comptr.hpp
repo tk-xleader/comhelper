@@ -93,7 +93,7 @@ namespace comhelper{
 		friend inline bool operator!=(com_ptr const& left, com_ptr const& right)noexcept{return !(left==right);}
 	private:
 		struct com_releaser{
-			using pointer = com_ptr<T, Traits>::pointer;
+			using pointer = typename com_ptr<T, Traits>::pointer;
 			inline constexpr void operator()(pointer ptr)const noexcept{
 				traits_type::release(ptr);
 			}
