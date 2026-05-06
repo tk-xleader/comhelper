@@ -41,9 +41,16 @@ namespace comhelper{
 	
 	template<typename T, typename Traits = interface_traits<T>>
 	class com_ptr{
+		struct com_releaser{
+			using pointer = _details::pointer_type_t<Traits, T>;
+			inline constexpr void operator()(pointer ptr)const noexcept{
+				Traits::release(ptr);
+			}
+		};
+		std::unique_ptr<T, com_releaser> ptr;
 	public:
 		using element_type = T;
-		using pointer = _details::pointer_type_t<Traits, T>;
+		using pointer = com_releaser::pointer;
 		using traits_type = Traits;
 		
 		com_ptr() = default;
@@ -86,19 +93,11 @@ namespace comhelper{
 		
 		explicit operator bool()const noexcept{return static_cast<bool>(ptr);}
 		
-		auto operator->()const noexcept{return ptr.get();}
+		auto operator->()const noexcept{return ptr.operator->();}
 		auto operator*()const noexcept{return *ptr;}
 		
 		friend inline bool operator==(com_ptr const& left, com_ptr const& right)noexcept{return left.ptr==right.ptr;}
 		friend inline bool operator!=(com_ptr const& left, com_ptr const& right)noexcept{return !(left==right);}
-	private:
-		struct com_releaser{
-			using pointer = typename com_ptr<T, Traits>::pointer;
-			inline constexpr void operator()(pointer ptr)const noexcept{
-				traits_type::release(ptr);
-			}
-		};
-		std::unique_ptr<T, com_releaser> ptr;
 	};
 
 	template<typename T>
